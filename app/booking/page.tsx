@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect } from "react"
 import { PublicBooking } from "@/components/public-booking"
-import { Camera, Heart, Shield, Clock, Star, Sparkles, Phone, Menu, X } from "lucide-react"
+import { Camera, Heart, Star, Phone, Menu, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FacebookGallery } from "@/components/facebook-gallery"
 import { useGlobalErrorLogger } from "@/hooks/useGlobalErrorLogger";
@@ -136,85 +136,8 @@ export default function BookingPage() {
         </div>
       </header>
 
-      {/* --- PHẦN CÒN LẠI CỦA TRANG GIỮ NGUYÊN --- */}
-      <section className="relative py-16 sm:py-20 overflow-hidden pt-28 sm:pt-32">
+      <section id="booking-section" className="pb-20 pt-28 sm:pt-32 scroll-mt-24">
         <div className="container mx-auto px-4 sm:px-6 md:px-8">
-          <div className="max-w-4xl mx-auto text-center space-y-6">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-light border border-white/30 mb-4">
-              <Sparkles className="h-4 w-4 text-pink-400" />
-              <span className="text-sm sm:text-base font-medium text-foreground/80">
-                Chụp ảnh đẹp, thuê máy chuyên nghiệp
-              </span>
-            </div>
-
-            <h2 className="text-3xl sm:text-4xl md:text-6xl font-bold leading-tight break-words">
-              <span className="bg-gradient-to-r from-pink-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
-                Ghi lại khoảnh khắc
-              </span>
-              <br />
-              <span className="text-foreground">của riêng bạn</span>
-            </h2>
-
-            <p className="text-base sm:text-lg md:text-xl text-foreground/70 max-w-2xl mx-auto leading-relaxed">
-              Ghi lại khoảnh khắc theo cách của bạn!
-              Trải nghiệm dịch vụ thuê máy ảnh chuyên nghiệp, dành cho mọi ai yêu nhiếp ảnh và muốn kể câu chuyện của chính mình qua ống kính.
-            </p>
-
-            <div className="flex flex-col sm:flex-row flex-wrap gap-4 justify-center pt-4">
-              <Button
-                size="lg"
-                className="w-full sm:w-auto rounded-2xl shadow-lg bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white px-8"
-                onClick={() => document.getElementById("booking-section")?.scrollIntoView({ behavior: "smooth" })}
-              >
-                Đặt thuê ngay
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="w-full sm:w-auto rounded-2xl glass-light border-white/30 hover:glass bg-transparent"
-                onClick={() => document.getElementById("story-section")?.scrollIntoView({ behavior: "smooth" })}
-              >
-                Tìm hiểu thêm
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="py-12 border-y border-white/10">
-        <div className="container mx-auto px-4 sm:px-6 md:px-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8 justify-center max-w-6xl mx-auto">
-            {[
-              { icon: Shield, title: "Bảo hành toàn diện", desc: "Máy móc được kiểm tra kỹ lưỡng" },
-              { icon: Clock, title: "Giao nhận nhanh", desc: "Tại Hà Nội" },
-              { icon: Heart, title: "Hỗ trợ tận tình", desc: "Tư vấn sử dụng miễn phí" },
-              { icon: Star, title: "Giá cả hợp lý", desc: "Ưu đãi cho khách hàng thân thiết" },
-            ].map((item, index) => (
-              <div key={index} className="text-center space-y-3 flex flex-col items-center">
-                <div className="inline-flex p-4 rounded-2xl glass-light border border-white/20">
-                  <item.icon className="h-6 w-6 text-pink-400" />
-                </div>
-                <h3 className="font-semibold text-foreground">{item.title}</h3>
-                <p className="text-sm sm:text-base text-foreground/60">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="booking-section" className="py-20">
-        <div className="container mx-auto px-4 sm:px-6 md:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl md:text-4xl font-bold mb-4">
-              <span className="bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent">
-                Chọn máy ảnh phù hợp với bạn
-              </span>
-            </h2>
-            <p className="text-base sm:text-lg md:text-lg text-foreground/70">
-              Đa dạng dòng máy từ cơ bản đến chuyên nghiệp, phù hợp với mọi nhu cầu
-            </p>
-          </div>
-
           <PublicBooking />
         </div>
       </section>

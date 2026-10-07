@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { ref, push, set, update, remove } from "firebase/database"
 import { db } from "@/firebase.config"
-import { useBranch } from "@/components/branch-context"
+import { useBranch, type Branch } from "@/components/branch-context"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"

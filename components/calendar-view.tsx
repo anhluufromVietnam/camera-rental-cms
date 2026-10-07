@@ -296,7 +296,7 @@ export function CalendarView() {
                       const isCurrent = new Date().getHours() === h && isSameDay(currentDate, new Date());
                       const dayEvents = getEventsForDay(currentDate).filter(e => parseInt(e.time?.split(":")[0] || "0") === h);
                       return (
-                          <div key={h} ref={el => hourRefs.current[h] = el} className={cn("flex gap-6 min-h-[80px] rounded-3xl p-2 transition-all", isCurrent && "bg-pink-50/50")}>
+                          <div key={h} ref={el => { hourRefs.current[h] = el }} className={cn("flex gap-6 min-h-[80px] rounded-3xl p-2 transition-all", isCurrent && "bg-pink-50/50")}>
                               <div className="flex flex-col items-center w-12 pt-1">
                                   <span className={cn("text-xs font-black", isCurrent ? "text-[#E91E63]" : "text-gray-300")}>{h}:00</span>
                                   {isCurrent && <div className="w-1.5 h-1.5 bg-[#E91E63] rounded-full mt-1 animate-pulse" />}
@@ -400,7 +400,7 @@ export function CalendarView() {
                           <p className="text-[11px] font-bold text-gray-400">{selectedBooking.customerPhone || "Chưa có SĐT"}</p>
                                    {/* CHÈN ĐOẠN HIỂN THỊ EMAIL DƯỚI ĐÂY */}
                                        <p className="text-[13px] font-medium text-gray-500 mt-1 flex items-center gap-1">
-                                         <svg xmlns="http://www.w3.org/2000/svg" size={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 text-gray-400"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                         <svg xmlns="http://www.w3.org/2000/svg" width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3 text-gray-400"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
                                          {selectedBooking.customerEmail || "Chưa có email/insta"}
                                        </p>
                         </div>

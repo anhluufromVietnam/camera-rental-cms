@@ -14,8 +14,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
-import { CameraIcon, CalendarIcon, Clock, Check, Mail, User, Building2 } from "lucide-react"
+import { CameraIcon, CalendarIcon, Clock, Check, Mail, User, Building2, MapPin, Phone } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { depositMethods, findReturningCustomerBooking, normalizeCustomerPhone, type CustomerBookingHistory } from "@/lib/customer-deposit"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
@@ -45,6 +46,7 @@ interface BranchType {
   id: string
   name: string
   address?: string
+  phone?: string
   isMain?: boolean
 }
 
@@ -123,6 +125,8 @@ export function PublicBooking() {
   const [stepError, setStepError] = useState("")
   const [phoneError, setPhoneError] = useState<string>("")
   const [isConfirmSubmitting, setIsConfirmSubmitting] = useState(false)
+  const [customerHistory, setCustomerHistory] = useState<CustomerBookingHistory[]>([])
+  const [historyStatus, setHistoryStatus] = useState<"loading" | "ready" | "error">("loading")
     const [bookedDates, setBookedDates] = useState<Date[]>([])
   const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null)
   const [bookedPeriodsByCamera, setBookedPeriodsByCamera] = useState<Record<string, BookedPeriod[]>>({}) // Modified: periods instead of dates
@@ -134,13 +138,26 @@ export function PublicBooking() {
 
   const mainBranchId = branches.find((branch) => branch.isMain)?.id || branches[0]?.id || null
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId) || null
+  const returningCustomerBooking = historyStatus === "ready"
+    ? findReturningCustomerBooking(customerHistory, bookingForm.customerPhone)
+    : undefined
+  const isReturningCustomer = Boolean(returningCustomerBooking)
+  const cameraBelongsToSelectedBranch = (camera: CameraType) => Boolean(selectedBranchId) && (
+    camera.branchId ? camera.branchId === selectedBranchId : selectedBranchId === mainBranchId
+  )
 
   const selectBranch = (branchId: string) => {
+    if (branchId === selectedBranchId) return
     setSelectedBranchId(branchId)
     const currentPath = window.location.pathname || "/booking"
     router.replace(`${currentPath}?branchId=${encodeURIComponent(branchId)}`, { scroll: false })
     setStep("branch")
     setSelectedCamera(null)
+    setCameras([])
+    setAvailableCameras([])
+    setBookingForm((prev) => ({ ...prev, cameraId: "" }))
+    setModelFilter("all")
+    setStepError("")
   }
 
   useEffect(() => {
@@ -196,15 +213,23 @@ export function PublicBooking() {
 
       setCameras(cameraList)
     })
+    return unsubscribe
   }, [selectedBranchId, mainBranchId])
 
   // Fetch all bookings and compute booked dates per camera
   // Fetch all bookings and compute booked periods per camera (modified)
   useEffect(() => {
     const bookingsRef = ref(db, "bookings")
+    setHistoryStatus("loading")
 
     const unsubscribe = onValue(bookingsRef, (snapshot) => {
       const bookingsData = snapshot.exists() ? snapshot.val() : {}
+      // Customer history spans branches; availability below remains branch-specific.
+      setCustomerHistory(Object.entries(bookingsData).map(([id, value]) => {
+        const booking = value as CustomerBookingHistory | null
+        return { id, customerPhone: booking?.customerPhone, status: booking?.status }
+      }))
+      setHistoryStatus("ready")
       const bookedMap: Record<string, BookedPeriod[]> = {}
 
       Object.values(bookingsData).forEach((b: any) => {
@@ -228,6 +253,9 @@ export function PublicBooking() {
       })
 
       setBookedPeriodsByCamera(bookedMap)
+    }, () => {
+      setCustomerHistory([])
+      setHistoryStatus("error")
     })
 
     return () => unsubscribe()
@@ -259,7 +287,7 @@ export function PublicBooking() {
       // 3. Lọc danh sách máy
       const filtered = cameras.filter((camera) => {
         // Nếu máy không ở trạng thái Active hoặc bị đánh dấu bảo trì thì loại bỏ ngay
-        if (camera.status !== "active" || camera.available !== 1) return false;
+        if (!cameraBelongsToSelectedBranch(camera) || camera.status !== "active" || camera.available !== 1) return false;
 
         const periods = bookedPeriodsByCamera[camera.id] || [];
         
@@ -281,9 +309,10 @@ export function PublicBooking() {
       });
 
       setAvailableCameras(filtered);
-    }, [bookingForm.startDate, bookingForm.endDate, bookingForm.startTime, bookingForm.endTime, cameras, bookedPeriodsByCamera]);
+    }, [bookingForm.startDate, bookingForm.endDate, bookingForm.startTime, bookingForm.endTime, cameras, bookedPeriodsByCamera, selectedBranchId, mainBranchId]);
 
   const handleCameraSelect = (camera: CameraType) => {
+    if (!cameraBelongsToSelectedBranch(camera)) return
     setSelectedCamera(camera)
     setBookingForm((prev) => ({ ...prev, cameraId: camera.id }))
     setStep("details")
@@ -340,10 +369,10 @@ export function PublicBooking() {
   }
 
   const handleDetailsSubmit = () => {
-    if (!bookingForm.customerName || !bookingForm.customerPhone || !bookingForm.customerEmail) {
+    if (!isFormValid()) {
       toast({
         title: "Thiếu thông tin",
-        description: "Vui lòng nhập đầy đủ thông tin khách hàng",
+        description: "Vui lòng nhập đầy đủ thông tin khách hàng và chọn phương thức cọc nếu chưa được miễn cọc",
         variant: "destructive",
       })
       return
@@ -352,7 +381,8 @@ export function PublicBooking() {
   }
 
   const handleConfirmSubmit = async () => {
-    if (!selectedCamera || !bookingForm.startDate || !bookingForm.endDate) {
+    if (isConfirmSubmitting) return
+    if (!selectedCamera || !cameraBelongsToSelectedBranch(selectedCamera) || !bookingForm.startDate || !bookingForm.endDate || !isFormValid()) {
       toast({
         title: "Lỗi",
         description: "Thiếu thông tin đặt thuê, vui lòng thử lại",
@@ -365,10 +395,25 @@ export function PublicBooking() {
       const pricing = getPricingInfo(); // Lấy thông tin giá mới nhất
 
     try {
+      // Recheck history immediately before saving; a cancelled prior order cannot waive the deposit.
+      const historySnapshot = await get(ref(db, "bookings"))
+      const latestHistory = Object.entries(historySnapshot.val() || {}).map(([id, value]) => {
+        const booking = value as CustomerBookingHistory | null
+        return { id, customerPhone: booking?.customerPhone, status: booking?.status }
+      })
+      const priorBooking = findReturningCustomerBooking(latestHistory, bookingForm.customerPhone)
+      if (!priorBooking && (isReturningCustomer || !depositMethods.includes(bookingForm.depositMethod))) {
+        setCustomerHistory(latestHistory)
+        setHistoryStatus("ready")
+        setBookingForm((prev) => ({ ...prev, depositMethod: "" }))
+        setStep("details")
+        toast({ title: "Vui lòng chọn phương thức cọc", description: "Chưa có đơn đã xác nhận hoặc hoàn tất với số điện thoại này.", variant: "destructive" })
+        return
+      }
       const newBooking = {
         customerName: bookingForm.customerName,
         customerEmail: bookingForm.customerEmail,
-        customerPhone: bookingForm.customerPhone,
+        customerPhone: normalizeCustomerPhone(bookingForm.customerPhone),
         cameraId: selectedCamera.id,
         cameraName: selectedCamera.name,
         startDate: format(bookingForm.startDate, "yyyy-MM-dd"),
@@ -382,8 +427,10 @@ export function PublicBooking() {
         status: "pending",
         createdAt: new Date().toISOString(),
         notes: bookingForm.notes,
-        depositMethod: bookingForm.depositMethod,
-        branchId: selectedCamera.branchId,
+        depositMethod: priorBooking ? "returning-customer" : bookingForm.depositMethod,
+        depositRequired: !priorBooking,
+        ...(priorBooking ? { returningCustomerBookingId: priorBooking.id } : {}),
+        ...(selectedBranchId ? { branchId: selectedBranchId } : {}),
       }
 
       await push(ref(db, "bookings"), newBooking)
@@ -436,7 +483,8 @@ export function PublicBooking() {
       bookingForm.customerPhone.trim() !== "" &&
       bookingForm.startDate &&
       bookingForm.endDate &&
-      /^[0-9]{9,11}$/.test(bookingForm.customerPhone)
+      normalizeCustomerPhone(bookingForm.customerPhone) !== "" &&
+      (isReturningCustomer || depositMethods.includes(bookingForm.depositMethod))
       // /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bookingForm.customerEmail)
     )
   }
@@ -484,6 +532,8 @@ export function PublicBooking() {
       return "Vui lòng chọn chi nhánh nhận máy"
     if (key === "dates" && !isDayValid())
       return "Vui lòng chọn ngày thuê và ngày trả"
+    if (key === "select" && (!selectedCamera || !bookingForm.cameraId))
+      return "Vui lòng chọn máy ảnh"
     if (key === "details" && !isFormValid())
       return "Vui lòng điền đầy đủ thông tin"
     return ""
@@ -657,7 +707,7 @@ export function PublicBooking() {
 
       {/* Step 1: Branch Selection */}
       {step === "branch" && (
-        <Card className="max-w-3xl mx-auto shadow-lg border-primary/20">
+        <Card className="max-w-5xl mx-auto shadow-lg border-primary/20">
           <CardHeader className="text-center">
             <CardTitle className="text-xl">Chọn chi nhánh nhận máy</CardTitle>
             <CardDescription>
@@ -666,18 +716,43 @@ export function PublicBooking() {
           </CardHeader>
           <CardContent className="space-y-5">
             {branches.length > 0 ? (
-              <Select value={selectedBranchId || ""} onValueChange={selectBranch}>
-                <SelectTrigger className="w-full bg-background h-12">
-                  <SelectValue placeholder={branchesLoading ? "Đang tải chi nhánh..." : "Chọn chi nhánh"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {branches.map((branch) => (
-                    <SelectItem key={branch.id} value={branch.id}>
-                      {branch.name}{branch.address ? ` - ${branch.address}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Chọn chi nhánh nhận máy">
+                {branches.map((branch) => {
+                  const isSelected = branch.id === selectedBranchId
+                  return (
+                    <button
+                      key={branch.id}
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => selectBranch(branch.id)}
+                      className={cn(
+                        "flex flex-col gap-4 rounded-xl border-2 bg-card p-5 text-left shadow-sm transition-all duration-300 hover:shadow-lg hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                        isSelected ? "border-primary bg-primary/5" : "border-border",
+                      )}
+                    >
+                      <span className="flex w-full items-start justify-between gap-3">
+                        <Building2 className="h-8 w-8 shrink-0 text-primary" />
+                        {branch.isMain && <Badge variant="secondary">Chi nhánh chính</Badge>}
+                      </span>
+                      <span className="text-lg font-semibold">{branch.name}</span>
+                      {branch.address && (
+                        <span className="flex items-start gap-2 text-sm text-muted-foreground">
+                          <MapPin className="h-4 w-4 shrink-0 mt-0.5" />{branch.address}
+                        </span>
+                      )}
+                      {branch.phone && (
+                        <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Phone className="h-4 w-4 shrink-0" />{branch.phone}
+                        </span>
+                      )}
+                      <span className={cn("mt-auto flex items-center gap-2 text-sm font-semibold", isSelected ? "text-primary" : "text-muted-foreground")}>
+                        {isSelected && <Check className="h-4 w-4" />}
+                        {isSelected ? "Đã chọn chi nhánh" : "Chọn chi nhánh này"}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             ) : (
               <p className="text-center text-sm text-muted-foreground">
                 {branchesLoading ? "Đang tải danh sách chi nhánh..." : "Hiện chưa có chi nhánh."}
@@ -1144,10 +1219,10 @@ export function PublicBooking() {
                     const value = e.target.value
                     setBookingForm((prev) => ({ ...prev, customerPhone: value }))
 
-                    if (value === "" || /^[0-9]{9,11}$/.test(value)) {
+                    if (value === "" || normalizeCustomerPhone(value)) {
                       setPhoneError("")
                     } else {
-                      setPhoneError("Số điện thoại phải có từ 9-11 chữ số")
+                      setPhoneError("Nhập số điện thoại hợp lệ từ 9-11 chữ số (có thể dùng +84)")
                     }
                   }}
                   placeholder="Nhập số điện thoại"
@@ -1204,7 +1279,21 @@ export function PublicBooking() {
 
             {/* Deposit method */}
             <div className="space-y-2 sm:col-span-2">
+              {isReturningCustomer ? (
+                <div role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
+                  <p className="font-semibold">Khách quen — Miễn cọc máy</p>
+                  <p className="mt-1 text-sm">Số điện thoại này đã có đơn được xác nhận hoặc hoàn tất. Bạn không cần chọn phương thức cọc.</p>
+                </div>
+              ) : (
+                <>
               <Label className="text-sm font-semibold">Phương thức cọc máy *</Label>
+              <p className="text-sm text-muted-foreground" role="status">
+                {historyStatus === "loading"
+                  ? "Đang kiểm tra lịch sử đặt thuê..."
+                  : historyStatus === "error"
+                    ? "Chưa kiểm tra được lịch sử. Vui lòng thử lại để xác nhận ưu đãi miễn cọc."
+                    : "Khách có đơn đã xác nhận hoặc hoàn tất với cùng số điện thoại được miễn cọc máy."}
+              </p>
 
               <Select
                 value={bookingForm.depositMethod}
@@ -1228,6 +1317,8 @@ export function PublicBooking() {
                   </SelectItem>
                 </SelectContent>
               </Select>
+                </>
+              )}
             </div>
 
 
@@ -1345,7 +1436,12 @@ export function PublicBooking() {
                 )}
 
                 {/*DepositMethod*/}
-                {bookingForm.depositMethod && (
+                {isReturningCustomer ? (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                    <p className="font-semibold">Khách quen — Miễn cọc máy</p>
+                    <p>Bạn chỉ cần thanh toán tiền thuê máy.</p>
+                  </div>
+                ) : bookingForm.depositMethod && (
                   <div className="p-2 bg-muted/50 font-bold rounded-lg text-sm leading-tight">
                     <p className="font-medium mb-1">Phương thức cọc máy:</p>
                     <p className="text-muted-foreground">

@@ -31,11 +31,11 @@ import {
   RefreshCw,
   TrendingUp,
   Filter,
-  ChevronRight,
-  ArrowUpRight
+  ChevronRight
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { belongsToBranch, useBranch } from "@/components/branch-context"
+import { calculateCameraRevenue, type RevenueCamera } from "@/lib/camera-revenue"
 import { useToast } from "@/hooks/use-toast"
 import {
   AreaChart,
@@ -76,7 +76,8 @@ const STATUS_CONFIG = {
 } as const
 
 export function OrderManagement() {
-  const [bookings, setBookings] = useState<Booking[]>([])
+  const [allBookings, setAllBookings] = useState<Booking[]>([])
+  const [allCameras, setAllCameras] = useState<RevenueCamera[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [revenueMode, setRevenueMode] = useState<"quick" | "custom">("quick")
@@ -89,64 +90,38 @@ export function OrderManagement() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(true)
-  const { selectedBranchId, mainBranchId } = useBranch()
+  const { selectedBranchId, selectedBranch, mainBranchId } = useBranch()
 
   const { toast } = useToast()
 
   useEffect(() => {
     const bookingsRef = ref(db, "bookings")
-    return onValue(bookingsRef, (snap) => {
+    const unsubscribeBookings = onValue(bookingsRef, (snap) => {
       if (snap.exists()) {
         const list: Booking[] = Object.entries(snap.val())
-          .map(([id, v]) => ({ id, ...(v as any) }))
-          .filter((booking) => belongsToBranch(booking, selectedBranchId, mainBranchId))
-        setBookings(list)
-      } else setBookings([])
+          .map(([id, v]) => ({ ...(v as Omit<Booking, "id">), id }))
+        setAllBookings(list)
+      } else setAllBookings([])
       setLoading(false)
     })
-  }, [selectedBranchId, mainBranchId])
-
-  // --- LOGIC XỬ LÝ BIỂU ĐỒ & DOANH THU (ĐÃ SỬA LỖI SẮP XẾP) ---
-  const revenueStats = useMemo(() => {
-    const completed = bookings.filter(b => b.status === "completed")
-    const now = new Date()
-    
-    const filtered = completed.filter(b => {
-      const bDate = new Date(b.createdAt)
-      if (revenueMode === "custom") {
-        const s = startDate ? new Date(startDate) : null
-        const e = endDate ? new Date(endDate) : null
-        if (s) s.setHours(0,0,0,0)
-        if (e) e.setHours(23,59,59,999)
-        return (!s || bDate >= s) && (!e || bDate <= e)
-      }
-      if (quickTime === "week") return bDate >= new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      if (quickTime === "month") return bDate.getMonth() === now.getMonth() && bDate.getFullYear() === now.getFullYear()
-      return bDate.getFullYear() === now.getFullYear()
+    const unsubscribeCameras = onValue(ref(db, "cameras"), (snap) => {
+      setAllCameras(Object.entries(snap.val() || {}).map(([id, value]) => ({
+        ...(value as Omit<RevenueCamera, "id">), id,
+      })))
     })
-
-    // Gom nhóm bằng YYYY-MM-DD để sắp xếp thời gian chuẩn xác
-    const chartMap = new Map<string, number>()
-    filtered.forEach(b => {
-      const d = new Date(b.createdAt)
-      const key = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
-      chartMap.set(key, (chartMap.get(key) || 0) + b.totalAmount)
-    })
-
-    // Sắp xếp theo key (thời gian) rồi mới format sang dd/mm để hiển thị
-    const chartData = Array.from(chartMap.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([key, value]) => {
-        const [y, m, d] = key.split('-')
-        return { name: `${d}/${m}`, value }
-      })
-
-    return {
-      total: filtered.reduce((sum, b) => sum + (b.totalAmount || 0), 0),
-      count: filtered.length,
-      chartData
+    return () => {
+      unsubscribeBookings()
+      unsubscribeCameras()
     }
-  }, [bookings, revenueMode, quickTime, startDate, endDate])
+  }, [])
+
+  const bookings = useMemo(() => allBookings.filter(booking =>
+    belongsToBranch(booking, selectedBranchId, mainBranchId)), [allBookings, selectedBranchId, mainBranchId])
+  const cameras = useMemo(() => allCameras.filter(camera =>
+    belongsToBranch(camera, selectedBranchId, mainBranchId)), [allCameras, selectedBranchId, mainBranchId])
+  const revenueStats = useMemo(() => calculateCameraRevenue(bookings, cameras, {
+    mode: revenueMode, quickTime, startDate, endDate,
+  }), [bookings, cameras, revenueMode, quickTime, startDate, endDate])
 
   const stats = useMemo(() => ({
     total: bookings.length,
@@ -185,10 +160,7 @@ export function OrderManagement() {
           <CardHeader className="flex flex-row items-center justify-between px-8 pt-8">
             <div className="space-y-1">
               <CardTitle className="text-2xl font-black text-slate-800 tracking-tight">Phân tích doanh thu</CardTitle>
-              <div className="flex items-center gap-2 text-emerald-500 font-bold text-sm">
-                <ArrowUpRight className="h-4 w-4" />
-                <span>+12.5% so với tháng trước</span>
-              </div>
+              <CardDescription>{revenueStats.count} đơn hoàn thành • Theo ngày tạo đơn</CardDescription>
             </div>
             <div className="flex bg-slate-50 p-1.5 rounded-[20px] border border-slate-100">
               <Button
@@ -230,12 +202,16 @@ export function OrderManagement() {
                   </Select>
                 ) : (
                   <div className="flex gap-2 animate-in slide-in-from-top-2 duration-300">
-                    <Input type="date" className="h-14 rounded-[22px] bg-slate-50 border-none font-bold" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                    <Input type="date" className="h-14 rounded-[22px] bg-slate-50 border-none font-bold" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                    <Input type="date" aria-label="Doanh thu từ ngày" max={endDate || undefined} className="h-14 rounded-[22px] bg-slate-50 border-none font-bold" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                    <Input type="date" aria-label="Doanh thu đến ngày" min={startDate || undefined} className="h-14 rounded-[22px] bg-slate-50 border-none font-bold" value={endDate} onChange={e => setEndDate(e.target.value)} />
                   </div>
                 )}
               </div>
             </div>
+
+            {revenueStats.invalidRange && (
+              <p role="alert" className="text-sm text-red-600">Ngày kết thúc phải từ ngày bắt đầu trở đi.</p>
+            )}
 
             {/* Biểu đồ Recharts */}
             <div className="h-[240px] w-full mt-4">
@@ -295,13 +271,61 @@ export function OrderManagement() {
             </Card>
           ))}
           <Card className="col-span-2 border-2 border-dashed border-slate-100 bg-transparent rounded-[32px] flex items-center justify-center p-6 text-slate-400 hover:border-indigo-200 hover:text-indigo-400 transition-all cursor-pointer group">
-            <div className="flex flex-col items-center gap-2">
+            <a href="#camera-revenue" className="flex flex-col items-center gap-2">
                <TrendingUp className="h-6 w-6 group-hover:bounce" />
-               <span className="text-xs font-black uppercase tracking-tighter">Xem báo cáo tăng trưởng</span>
-            </div>
+               <span className="text-xs font-black uppercase tracking-tighter">Xem doanh thu từng máy</span>
+            </a>
           </Card>
         </div>
       </div>
+
+      <Card id="camera-revenue" className="border-none shadow-[0_4px_20px_rgb(0,0,0,0.03)] rounded-[32px] bg-white scroll-mt-6">
+        <CardHeader className="px-6 sm:px-8">
+          <CardTitle className="text-xl font-black text-slate-800">Doanh thu theo máy ảnh</CardTitle>
+          <CardDescription>
+            {selectedBranch?.name ? `${selectedBranch.name} • ` : ""}Cùng khoảng thời gian ở trên, tính theo ngày tạo đơn đã hoàn thành.
+            Các đơn chờ xác nhận, đang thuê và đã hủy chưa tính vào doanh thu.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-6 sm:px-8">
+          {revenueStats.cameras.length === 0 ? (
+            <p className="py-6 text-sm text-slate-500">Chưa có máy ảnh hoặc doanh thu trong khoảng thời gian này.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Doanh thu từng máy ảnh, xếp theo doanh thu giảm dần</caption>
+                <thead>
+                  <tr className="border-b border-slate-100 text-slate-500">
+                    <th scope="col" className="py-3 pr-4 text-left font-semibold">Máy ảnh</th>
+                    <th scope="col" className="py-3 px-4 text-right font-semibold">Đơn hoàn thành</th>
+                    <th scope="col" className="py-3 pl-4 text-right font-semibold">Doanh thu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {revenueStats.cameras.map(camera => (
+                    <tr key={camera.id} className="border-b border-slate-50">
+                      <th scope="row" className="py-4 pr-4 text-left font-normal">
+                        <span className="font-bold text-slate-800">{camera.name}</span>
+                        <span className="block text-xs text-slate-400 break-all">Mã máy: {camera.id}</span>
+                        {!camera.inCatalog && <span className="block text-xs text-slate-500">Ngoài danh mục hiện tại</span>}
+                      </th>
+                      <td className="py-4 px-4 text-right tabular-nums">{camera.count}</td>
+                      <td className="py-4 pl-4 text-right font-bold text-slate-900 tabular-nums whitespace-nowrap">{camera.total.toLocaleString("vi-VN")} đ</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="font-bold text-slate-900">
+                    <th scope="row" className="py-4 pr-4 text-left">Tổng cộng</th>
+                    <td className="py-4 px-4 text-right tabular-nums">{revenueStats.count}</td>
+                    <td className="py-4 pl-4 text-right tabular-nums whitespace-nowrap">{revenueStats.total.toLocaleString("vi-VN")} đ</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* SECTION 2: DANH SÁCH ĐƠN HÀNG (Sạch sẽ & Thoáng) */}
       <div className="space-y-6 pt-4">
@@ -348,6 +372,9 @@ export function OrderManagement() {
                         <div>
                           <h4 className="font-black text-slate-900 text-xl tracking-tight">{booking.customerName}</h4>
                           <p className="text-indigo-600 font-bold text-sm mt-1">{booking.customerPhone}</p>
+                          {booking.depositMethod === "returning-customer" && (
+                            <Badge className="mt-2 block w-fit border-none bg-emerald-50 text-emerald-700 shadow-none">Khách quen · Miễn cọc</Badge>
+                          )}
                           <Badge variant="outline" className="mt-3 text-[10px] font-mono py-0.5 rounded-lg border-slate-100 text-slate-300">ID: {booking.id.slice(0,10)}</Badge>
                         </div>
                       </div>
@@ -390,9 +417,9 @@ export function OrderManagement() {
                        {STATUS_CONFIG[booking.status].nextStatus && (
                         <Button
                           size="sm" className="rounded-[14px] font-black bg-slate-900 hover:bg-indigo-600 px-6 text-[11px] h-10 transition-all shadow-lg shadow-slate-200"
-                          onClick={() => updateBookingStatus(booking.id, STATUS_CONFIG[booking.status].nextStatus as any)}
+                          onClick={() => updateBookingStatus(booking.id, STATUS_CONFIG[booking.status].nextStatus as Booking["status"])}
                         >
-                          Chuyển: {STATUS_CONFIG[STATUS_CONFIG[booking.status].nextStatus as any].label}
+                          Chuyển: {STATUS_CONFIG[STATUS_CONFIG[booking.status].nextStatus as Booking["status"]].label}
                           <ChevronRight className="h-3 w-3 ml-2" />
                         </Button>
                       )}
