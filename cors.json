@@ -1,0 +1,31 @@
+[
+  {
+    "origin": [
+      "http://localhost:3000",
+      "https://bookingcamera.web.app"
+    ],
+    "method": [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "HEAD"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "Authorization"
+    ],
+    "maxAgeSeconds": 3600
+  },
+  {
+    "compilerOptions": {
+      "baseUrl": ".",
+      "paths": {
+        "@/*": [
+          "./*"
+        ]
+      }
+    }
+  }
+]
